@@ -1,4 +1,5 @@
 import path from 'path'
+import { inject, injectable } from 'tsyringe';
 import fs from 'fs';
 
 import User from '../infra/typeorm/entities/User';
@@ -6,6 +7,7 @@ import AppError from '@shared/errors/AppError';
 import uploadConfig from '@config/upload';
 
 import IUsersRepository from '../repositories/IUsersRepository'
+import IStorageProvider from '@shared/container/providers/StorageProvider/models/IStorageProvider';
 
 
 interface Request {
@@ -13,28 +15,32 @@ interface Request {
     avatarFilename: string;
 }
 
+@injectable()
 class UpdateUserAvatarService {
-    constructor(private usersRepository: IUsersRepository) { }
+    constructor(
+        @inject('UsersRepository')
+        private usersRepository: IUsersRepository,
+
+        @inject('StorageProvider')
+        private storageProvider: IStorageProvider,
+    ) { }
 
 
-    public async execute({ user_id, avatarFilename}: Request): Promise<User> {
-        const user = await this.usersRepository.findById( user_id );
+    public async execute({ user_id, avatarFilename }: Request): Promise<User> {
+        const user = await this.usersRepository.findById(user_id);
 
-        if(!user){
+        if (!user) {
             throw new AppError('Only authenticated users can update their avatar.', 401);
         }
 
-        if(user.avatar) {
+        if (user.avatar) {
             //Deletar avatar anterior
-            const userAvatarFilePath = path.join(uploadConfig.directory, user.avatar);
-            const userAvatarFileExists = await fs.promises.stat(userAvatarFilePath);
-
-            if(userAvatarFileExists) {
-                await fs.promises.unlink(userAvatarFilePath);
-            }
+            await this.storageProvider.deleteFile(user.avatar);
         }
 
-        user.avatar = avatarFilename;
+        const filename = await this.storageProvider.saveFile(avatarFilename);
+
+        user.avatar = filename;
 
         await this.usersRepository.save(user);
 
